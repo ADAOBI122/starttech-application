@@ -1,0 +1,116 @@
+name: Backend CI/CD
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "k8s/**"
+
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "backend/**"
+      - "k8s/**"
+
+
+permissions:
+  contents: read
+
+
+env:
+  AWS_REGION: eu-west-2
+  ECR_REPOSITORY: starttech-backend-api
+  EKS_CLUSTER_NAME: starttech-cluster
+  IMAGE_TAG: ${{ github.sha }}
+
+
+jobs:
+
+  backend-build-deploy:
+
+    runs-on: ubuntu-latest
+
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+
+      - name: Run Go tests
+        working-directory: backend/MuchToDo
+        run: |
+          go test ./...
+
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+
+      - name: Login to Amazon ECR
+        uses: aws-actions/amazon-ecr-login@v2
+
+
+      - name: Build Docker image
+        run: |
+          docker build \
+          -t $ECR_REPOSITORY:$IMAGE_TAG \
+          ./backend
+
+
+      - name: Run Trivy security scan
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: "${{ env.ECR_REPOSITORY }}:${{ env.IMAGE_TAG }}"
+          severity: HIGH,CRITICAL
+          exit-code: 1
+
+
+      - name: Tag image for ECR
+        run: |
+          docker tag \
+          $ECR_REPOSITORY:$IMAGE_TAG \
+          ${{ secrets.ECR_REGISTRY }}/$ECR_REPOSITORY:$IMAGE_TAG
+
+
+      - name: Push image to ECR
+        run: |
+          docker push \
+          ${{ secrets.ECR_REGISTRY }}/$ECR_REPOSITORY:$IMAGE_TAG
+
+
+      - name: Update Kubernetes deployment image
+        run: |
+          sed -i \
+          "s|REPLACE_WITH_ECR_IMAGE|${{ secrets.ECR_REGISTRY }}/$ECR_REPOSITORY:$IMAGE_TAG|g" \
+          k8s/deployment.yaml
+
+
+      - name: Configure kubectl for EKS
+        run: |
+          aws eks update-kubeconfig \
+          --region $AWS_REGION \
+          --name $EKS_CLUSTER_NAME
+
+
+      - name: Deploy Kubernetes manifests
+        run: |
+          kubectl apply -f k8s/
+
+
+      - name: Verify deployment rollout
+        run: |
+          kubectl rollout status deployment/backend-api

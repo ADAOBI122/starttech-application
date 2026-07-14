@@ -1,0 +1,53 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend-api
+  labels:
+    app: backend-api
+
+spec:
+  replicas: 2
+
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+
+  selector:
+    matchLabels:
+      app: backend-api
+
+  template:
+    metadata:
+      labels:
+        app: backend-api
+
+    spec:
+      containers:
+        - name: backend-api
+
+          image: REPLACE_WITH_ECR_IMAGE
+
+          ports:
+            - containerPort: 8080
+
+          env:
+            - name: REDIS_HOST
+              value: "REPLACE_WITH_REDIS_ENDPOINT"
+
+            - name: MONGO_URI
+              valueFrom:
+                secretKeyRef:
+                  name: backend-secrets
+                  key: mongo-uri
+
+          readinessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
+
+          livenessProbe:
+            httpGet:
+              path: /api/v1/health
+              port: 8080
