@@ -41,6 +41,10 @@ jobs:
 
       - name: Checkout repository
 
+#"Use a ready-made GitHub tool called checkout, version 4, 
+#to download the repository code onto the temporary computer where the workflow is 
+#running which is the ubuntu-latest.
+
         uses: actions/checkout@v4
 
 
